@@ -2,6 +2,8 @@
 
 Full-stack application that accepts a website's sitemap URL and a set of prioritized keywords, then ranks URLs by relevance. Built for deployment on [Render.com](https://render.com).
 
+**Live demo:** [https://sitemap-prioritizer.onrender.com](https://sitemap-prioritizer.onrender.com)
+
 ## Tech Stack
 
 - **Backend:** Python FastAPI (async sitemap fetching, defusedxml parsing)
