@@ -1,0 +1,11 @@
+# Render.com Blueprint - Intelligent Sitemap Prioritizer
+# https://render.com/docs/blueprint-spec
+# Uses Docker so both Node (frontend build) and Python (backend) are available.
+services:
+  - type: web
+    name: sitemap-prioritizer
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: oregon
+    plan: free
