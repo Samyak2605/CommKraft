@@ -1,6 +1,6 @@
 # Intelligent Sitemap Prioritizer
 
-Full-stack application that accepts a website's sitemap URL and a set of prioritized keywords, then ranks URLs by relevance. Built for deployment on [Render.com](https://render.com).
+Full-stack application that accepts a website's sitemap URL and a set of prioritized keywords, then ranks URLs by relevance.
 
 **Live demo:** [https://sitemap-prioritizer.onrender.com](https://sitemap-prioritizer.onrender.com)
 
