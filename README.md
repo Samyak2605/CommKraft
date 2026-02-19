@@ -94,8 +94,3 @@ Then open http://localhost:8000.
   **Response:** `{ "total_urls": number, "results": [ { "url", "matched_category", "priority_score", "url_depth", "last_modified" }, ... ] }`
 
 
-- [x] CORS setup  
-- [x] Error handling for invalid sitemap  
-- [x] Loading state in frontend  
-- [x] Clean modern UI  
-- [x] Handles 1,000+ URLs (async + pagination)
