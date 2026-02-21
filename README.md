@@ -6,14 +6,14 @@ Full-stack application that accepts a website's sitemap URL and a set of priorit
 
 ## Tech Stack
 
-- **Backend:** Python FastAPI (async sitemap fetching, defusedxml parsing)
+- **Backend:** Python FastAPI (async sitemap fetching, defusedxml parsing, spaCy for NLP similarity)
 - **Frontend:** React (Vite), minimal modern UI
 - **Deployment:** Render.com (single Web Service)
 
 ## Features
 
 - **Input:** Sitemap XML URL + keywords by priority (High / Medium / Low)
-- **Scoring:** High = 3 pts, Medium = 2 pts, Low = 1 pt per keyword match in URL path; best category assigned
+- **Scoring:** **NLP (spaCy)** semantic similarity: terms like "health" and "wellness" get the same rank. High = 3×sim, Medium = 2×sim, Low = 1×sim; exact match fallback when spaCy unavailable
 - **Output:** Table of URL, Matched Category, Priority Score, URL depth, Last modified (when present in sitemap)
 - Handles **1,000+ URLs** (async fetch, efficient parsing, paginated table)
 - CORS enabled; error handling for invalid sitemap; loading state in UI
@@ -54,6 +54,7 @@ cd backend
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+python -m spacy download en_core_web_md
 uvicorn app.main:app --reload --port 8000
 ```
 
