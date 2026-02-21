@@ -9,7 +9,8 @@ RUN npm ci && npm run build
 FROM python:3.11-slim
 WORKDIR /app
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && python -m spacy download en_core_web_md
 COPY backend/ ./backend
 COPY --from=frontend /app/backend/static ./backend/static
 ENV PYTHONPATH=/app/backend
