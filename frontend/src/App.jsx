@@ -93,7 +93,7 @@ export default function App() {
             <input
               id="sitemap"
               type="url"
-              placeholder="https://example.com/sitemap.xml"
+              placeholder="https://www.sitemaps.org/sitemap.xml"
               value={sitemapUrl}
               onChange={(e) => setSitemapUrl(e.target.value)}
               disabled={loading}
@@ -103,7 +103,7 @@ export default function App() {
 
           <div className="keywords-section">
             <label>Keywords by priority</label>
-            <p className="hint">Comma or newline separated. High = 3 pts, Medium = 2 pts, Low = 1 pt.</p>
+            <p className="hint">Comma or newline separated. NLP: similar terms (e.g. health, wellness) rank together. High = 3×, Medium = 2×, Low = 1×.</p>
             <div className="keywords-grid">
               {['High', 'Medium', 'Low'].map((level) => (
                 <div key={level} className="keyword-group">
@@ -189,7 +189,7 @@ export default function App() {
                           {row.matched_category}
                         </span>
                       </td>
-                      <td className="score-cell">{row.priority_score}</td>
+                      <td className="score-cell">{Number(row.priority_score) === row.priority_score && row.priority_score % 1 !== 0 ? row.priority_score.toFixed(2) : row.priority_score}</td>
                       <td>{row.url_depth}</td>
                       <td className="mono muted">{row.last_modified || '—'}</td>
                     </tr>
