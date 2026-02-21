@@ -23,7 +23,7 @@ class SitemapRequest(BaseModel):
 class UrlResult(BaseModel):
     url: str
     matched_category: str
-    priority_score: int
+    priority_score: float  # NLP similarity-based; same rank for semantically similar terms (e.g. health/wellness)
     url_depth: int
     last_modified: Optional[str] = None
 

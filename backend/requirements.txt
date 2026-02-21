@@ -3,3 +3,6 @@ uvicorn[standard]==0.27.1
 httpx==0.26.0
 defusedxml==0.7.1
 python-multipart==0.0.9
+spacy>=3.7.0
+numpy>=1.24.0
+sentence-transformers>=2.2.0

@@ -1,10 +1,40 @@
+import re
 from urllib.parse import urlparse
 from typing import Optional
 
 import httpx
+import numpy as np
 from defusedxml import ElementTree as ET
 
 from app.models import KeywordPriorities, UrlResult
+
+# Lazy-loaded spaCy NLP model for semantic similarity (e.g. health ~ wellness)
+_nlp = None
+# Lazy-loaded sentence-transformers model for phrase-level embeddings
+_embed_model = None
+
+
+def _get_nlp():
+    global _nlp
+    if _nlp is None:
+        try:
+            import spacy
+            _nlp = spacy.load("en_core_web_md")
+        except Exception:
+            _nlp = False  # mark as unavailable
+    return _nlp if _nlp else None
+
+
+def _get_embed_model():
+    """Load sentence-transformers model for phrase-level embeddings (health/wellness same rank)."""
+    global _embed_model
+    if _embed_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            _embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+        except Exception:
+            _embed_model = False
+    return _embed_model if _embed_model else None
 
 
 # Sitemap namespace
@@ -81,6 +111,143 @@ def _url_depth(url: str) -> int:
     return len(path.split("/"))
 
 
+def _path_terms(path_lower: str) -> list[str]:
+    """Extract tokens from URL path (split by / and -). Used for NLP similarity."""
+    if not path_lower:
+        return []
+    parts = re.split(r"[/\-_.]+", path_lower)
+    return [p for p in parts if len(p) > 1]
+
+
+def _cosine_similarity(v1: np.ndarray, v2: np.ndarray) -> float:
+    n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
+    if n1 == 0 or n2 == 0:
+        return 0.0
+    return float(np.dot(v1, v2) / (n1 * n2))
+
+
+def _keyword_vectors(nlp, keyword_list: list[str]) -> list[np.ndarray]:
+    """Get one vector per keyword (average of token vectors for multi-word)."""
+    vectors = []
+    for k in keyword_list:
+        doc = nlp(k.lower().strip())
+        if not doc:
+            continue
+        vecs = [t.vector for t in doc if t.has_vector]
+        if not vecs:
+            continue
+        vectors.append(np.mean(vecs, axis=0))
+    return vectors
+
+
+def _score_url_nlp(
+    path_lower: str,
+    keywords: KeywordPriorities,
+    nlp,
+    term_vectors: dict[str, np.ndarray],
+    kw_high: list[np.ndarray],
+    kw_medium: list[np.ndarray],
+    kw_low: list[np.ndarray],
+) -> tuple[float, str]:
+    """
+    Score URL by semantic similarity. Terms like 'health' and 'wellness' get similar
+    scores so they rank together. Weights: High=3, Medium=2, Low=1.
+    """
+    terms = _path_terms(path_lower)
+    if not terms:
+        return 0.0, "Unmatched"
+
+    def max_sim(term_vecs: list[np.ndarray], kw_vecs: list[np.ndarray]) -> float:
+        if not kw_vecs:
+            return 0.0
+        best = 0.0
+        for tvec in term_vecs:
+            for kvec in kw_vecs:
+                sim = _cosine_similarity(tvec, kvec)
+                if sim > best:
+                    best = sim
+        return best
+
+    def exact_match_sim(tier_keywords: list[str]) -> float:
+        for k in tier_keywords:
+            if k in path_lower:
+                return 1.0
+        return 0.0
+
+    term_vecs = []
+    for t in terms:
+        if t in term_vectors:
+            term_vecs.append(term_vectors[t])
+        else:
+            doc = nlp(t)
+            v = getattr(doc, "vector", None)
+            if v is not None and np.linalg.norm(v) > 0:
+                term_vecs.append(v)
+                term_vectors[t] = v
+
+    # Use similarity; fallback to 1.0 for exact match if keyword in path
+    high_sim = max(max_sim(term_vecs, kw_high) if kw_high else 0.0, exact_match_sim(keywords.High))
+    med_sim = max(max_sim(term_vecs, kw_medium) if kw_medium else 0.0, exact_match_sim(keywords.Medium))
+    low_sim = max(max_sim(term_vecs, kw_low) if kw_low else 0.0, exact_match_sim(keywords.Low))
+
+    # Weighted score: same rank for semantically similar terms (e.g. health ≈ wellness)
+    weighted_high = 3.0 * high_sim
+    weighted_med = 2.0 * med_sim
+    weighted_low = 1.0 * low_sim
+    total = weighted_high + weighted_med + weighted_low
+
+    if total <= 0:
+        return 0.0, "Unmatched"
+    if weighted_high >= weighted_med and weighted_high >= weighted_low:
+        best = "High"
+    elif weighted_med >= weighted_low:
+        best = "Medium"
+    else:
+        best = "Low"
+    return round(total, 4), best
+
+
+def _path_to_sentence(path_lower: str) -> str:
+    """Turn URL path into a phrase for embedding (e.g. /blog/health-news -> blog health news)."""
+    if not path_lower:
+        return ""
+    return " ".join(re.split(r"[/\-_.]+", path_lower)).strip()
+
+
+def _score_url_embed(
+    path_embed: np.ndarray,
+    high_embs: np.ndarray,
+    med_embs: np.ndarray,
+    low_embs: np.ndarray,
+) -> tuple[float, str]:
+    """
+    Score one URL path using its embedding vs keyword embeddings. Same rank for
+    semantically similar phrases (e.g. health / wellness). Weights: High=3, Medium=2, Low=1.
+    """
+    def max_cos(v: np.ndarray, pool: np.ndarray) -> float:
+        if pool is None or (hasattr(pool, "shape") and (len(pool) == 0 or pool.size == 0)):
+            return 0.0
+        sims = np.dot(pool, v) / (np.linalg.norm(pool, axis=1) * np.linalg.norm(v) + 1e-9)
+        return float(np.max(sims).item())
+
+    high_sim = max_cos(path_embed, high_embs)
+    med_sim = max_cos(path_embed, med_embs)
+    low_sim = max_cos(path_embed, low_embs)
+    w_high = 3.0 * high_sim
+    w_med = 2.0 * med_sim
+    w_low = 1.0 * low_sim
+    total = w_high + w_med + w_low
+    if total <= 0:
+        return 0.0, "Unmatched"
+    if w_high >= w_med and w_high >= w_low:
+        best = "High"
+    elif w_med >= w_low:
+        best = "Medium"
+    else:
+        best = "Low"
+    return round(total, 4), best
+
+
 def _score_url(path_lower: str, keywords: KeywordPriorities) -> tuple[int, str]:
     """
     Score URL path against keywords. Returns (score, best_category).
@@ -130,18 +297,70 @@ async def fetch_sitemap_urls(client: httpx.AsyncClient, sitemap_url: str) -> lis
 
 
 async def prioritize_sitemap(sitemap_url: str, keywords: KeywordPriorities) -> list[UrlResult]:
-    """Fetch sitemap, score all URLs, sort by score descending."""
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    """Fetch sitemap, score by embeddings (preferred) or spaCy or exact match, sort descending."""
+    async with httpx.AsyncClient(follow_redirects=True, verify=False) as client:
         url_list = await fetch_sitemap_urls(client, sitemap_url)
 
     if not url_list:
         return []
 
+    path_by_url = [(url, lastmod, (urlparse(url).path or "").lower()) for url, lastmod in url_list]
+    paths = [p for _, _, p in path_by_url]
+    path_sentences = [_path_to_sentence(p) for p in paths]
+
+    # 1) Prefer sentence-transformers (phrase-level embeddings)
+    embed_model = _get_embed_model()
+    if embed_model is not None:
+        path_embs = embed_model.encode(
+            [s or " " for s in path_sentences],
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        high_list = [k.strip().lower() for k in keywords.High if k.strip()]
+        med_list = [k.strip().lower() for k in keywords.Medium if k.strip()]
+        low_list = [k.strip().lower() for k in keywords.Low if k.strip()]
+        high_embs = embed_model.encode(high_list, normalize_embeddings=True) if high_list else np.zeros((0, path_embs.shape[1]))
+        med_embs = embed_model.encode(med_list, normalize_embeddings=True) if med_list else np.zeros((0, path_embs.shape[1]))
+        low_embs = embed_model.encode(low_list, normalize_embeddings=True) if low_list else np.zeros((0, path_embs.shape[1]))
+        use_embed = high_embs.shape[0] or med_embs.shape[0] or low_embs.shape[0]
+    else:
+        use_embed = False
+        path_embs = high_embs = med_embs = low_embs = None
+
+    # 2) Fallback: spaCy word vectors
+    nlp = _get_nlp() if not use_embed else None
+    if nlp is not None and not use_embed:
+        kw_high = _keyword_vectors(nlp, keywords.High)
+        kw_medium = _keyword_vectors(nlp, keywords.Medium)
+        kw_low = _keyword_vectors(nlp, keywords.Low)
+        all_terms = set()
+        for _, _, path in path_by_url:
+            all_terms.update(_path_terms(path))
+        term_vectors = {}
+        terms_list = list(all_terms)
+        for term, doc in zip(terms_list, nlp.pipe(terms_list)):
+            v = getattr(doc, "vector", None)
+            if v is not None and np.linalg.norm(v) > 0:
+                term_vectors[term] = v.copy()
+        use_nlp = kw_high or kw_medium or kw_low
+    else:
+        term_vectors = {}
+        kw_high = kw_medium = kw_low = []
+        use_nlp = False
+
     results: list[UrlResult] = []
-    for url, lastmod in url_list:
-        parsed = urlparse(url)
-        path = (parsed.path or "").lower()
-        score, category = _score_url(path, keywords)
+    for i, (url, lastmod, path) in enumerate(path_by_url):
+        if use_embed:
+            score, category = _score_url_embed(
+                path_embs[i], high_embs, med_embs, low_embs
+            )
+        elif use_nlp:
+            score, category = _score_url_nlp(
+                path, keywords, nlp, term_vectors, kw_high, kw_medium, kw_low
+            )
+        else:
+            s, category = _score_url(path, keywords)
+            score = float(s)
         depth = _url_depth(url)
         results.append(
             UrlResult(
