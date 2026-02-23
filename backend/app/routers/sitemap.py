@@ -36,10 +36,10 @@ async def prioritize(request: SitemapRequest):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Unexpected error parsing sitemap")
+        logger.exception("Unexpected error in prioritize_sitemap")
         raise HTTPException(
-            status_code=422,
-            detail=f"Invalid sitemap or parsing error: {str(e)}",
+            status_code=503,
+            detail=f"Service temporarily unavailable. Try again in a moment. ({str(e)[:100]})",
         )
 
     return SitemapResponse(total_urls=len(results), results=results)

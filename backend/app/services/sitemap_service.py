@@ -29,11 +29,15 @@ def _get_embed_model():
     """Load sentence-transformers model for phrase-level embeddings (health/wellness same rank)."""
     global _embed_model
     if _embed_model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            _embed_model = SentenceTransformer("all-MiniLM-L6-v2")
-        except Exception:
+        import os
+        if os.environ.get("DISABLE_SENTENCE_TRANSFORMERS", "").lower() in ("1", "true", "yes"):
             _embed_model = False
+        else:
+            try:
+                from sentence_transformers import SentenceTransformer
+                _embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+            except Exception:
+                _embed_model = False
     return _embed_model if _embed_model else None
 
 
