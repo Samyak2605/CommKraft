@@ -9,3 +9,6 @@ services:
     dockerContext: .
     region: oregon
     plan: free
+    envVars:
+      - key: DISABLE_SENTENCE_TRANSFORMERS
+        value: "true"
