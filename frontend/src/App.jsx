@@ -51,14 +51,19 @@ export default function App() {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
         const d = json.detail
-        const msg = typeof d === 'string' ? d : Array.isArray(d) ? d.map((x) => x.msg || x.loc?.join('.')).filter(Boolean).join(', ') : 'Request failed'
-        setError(msg || `Error ${res.status}`)
+        let msg = typeof d === 'string' ? d : Array.isArray(d) ? d.map((x) => x.msg || x.loc?.join('.')).filter(Boolean).join(', ') : ''
+        if (!msg) {
+          if (res.status >= 502 && res.status <= 504) msg = 'Server is starting or busy. Wait 30–60 seconds and try again.'
+          else msg = `Request failed (${res.status}). Try again.`
+        }
+        setError(msg)
         return
       }
       setData(json)
       setPage(0)
     } catch (err) {
-      setError(err.message || 'Network error. Please try again.')
+      const msg = err.message || 'Network error.'
+      setError(msg.includes('fetch') || msg.includes('Network') ? 'Network error. If the app just started, wait 30–60 seconds and try again.' : msg)
     } finally {
       setLoading(false)
     }
